@@ -139,11 +139,9 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #fff; }
 <div class="panel">
   <div style="position:relative">
     <label>PRODUCTO</label>
-    <input type="text" id="inNombre" placeholder="Ej: Mayonesa Natura x100" maxlength="50"
-           onkeydown="if(event.key==='Enter') agregarProducto()"
-           oninput="mostrarSugerencias(this.value)"
-           autocomplete="off">
-<div id="sugerencias" style="position:absolute;background:#333;border:1px solid #555;border-radius:6px;z-index:999;max-height:180px;overflow-y:auto;min-width:220px;display:none;"></div>
+    <div id="sugerencias" style="position:absolute;top:100%;left:0;background:#333;border:1px solid #555;border-radius:6px;z-index:999;max-height:180px;overflow-y:auto;min-width:240px;display:none;"></div>
+    <input type="text" id="inNombre" oninput="mostrarSugerencias(this.value)" autocomplete="off" placeholder="Ej: Mayonesa Natura x100" maxlength="50"
+           onkeydown="if(event.key==='Enter') agregarProducto()">
   </div>
   <div>
     <label>PRECIO ($)</label>
@@ -154,7 +152,7 @@ body { font-family: Arial, sans-serif; background: #1a1a1a; color: #fff; }
   <button class="btn-print" id="btnPrint" onclick="generarPDF()">📄 GENERAR PDF</button>
   <button class="btn-drive" id="btnDrive" onclick="guardarEnDrive()">☁️ GUARDAR EN DRIVE</button>
   <button class="btn-clear" onclick="limpiarTodo()">✕ Limpiar</button>
-  <span class="counter">Carteles: <span id="contador">0</span></span>
+  <span class="counter">Carteles: <span id="contador">0</span> / 12</span>
 </div>
 
 <div class="pills" id="pills">
@@ -224,51 +222,6 @@ function render() {
   }
 }
 
-function construirPDF() {
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-  const COLS = 3, ROWS = 4, POR_HOJA = COLS * ROWS;
-  const cW = 297 / COLS;
-  const cH = 210 / ROWS;
-
-  for (let i = 0; i < productos.length; i++) {
-    const p = productos[i];
-    const posEnHoja = i % POR_HOJA;
-    if (posEnHoja === 0) {
-      if (i > 0) doc.addPage();
-      doc.addImage(IMG_B64, "PNG", 0, 0, 297, 210);
-    }
-    const col = posEnHoja % COLS;
-    const row = Math.floor(posEnHoja / COLS);
-    const x = col * cW;
-    const y = row * cH;
-
-    if (p.nombre) {
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(16);
-      doc.setTextColor(17, 17, 17);
-      const nX = x + cW * 0.30;
-      const nW = cW * 0.72;
-      const lines = doc.splitTextToSize(p.nombre, nW);
-      const lineH = 7;
-      const totalH = lines.length * lineH;
-      const startY = y + cH * 0.29 - totalH / 2 + lineH;
-      lines.forEach((line, li) => {
-        const lw = doc.getTextWidth(line);
-        doc.text(line, nX + (nW - lw) / 2, startY + li * lineH);
-      });
-    }
-    if (p.precio !== null) {
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(46);
-      doc.setTextColor(192, 57, 43);
-      const precioY = row === 3 ? y + cH * 0.80 : row === 2 ? y + cH * 0.82 : y + cH * 0.85;
-      doc.text(fmt(p.precio), x + cW * 0.50, precioY);
-    }
-  }
-  return doc;
-}
-
 async function generarPDF() {
   const btn = document.getElementById("btnPrint");
   btn.textContent = "⏳ Generando..."; btn.disabled = true;
@@ -279,66 +232,98 @@ async function generarPDF() {
   btn.textContent = "📄 GENERAR PDF"; btn.disabled = false;
 }
 
-// ---- GOOGLE DRIVE ----
-const CLIENT_ID = "556113639164-rk5u4alkneju0lq1jodgmjlogh9migb7.apps.googleusercontent.com";
-const FOLDER_ID = "1qWj9v5-g4uDZ86DAUlA0aFrtZ4sfjw87";
-const SCOPES = "https://www.googleapis.com/auth/drive.file";
-let accessToken = null;
-
-function obtenerToken(callback) {
-  const client = google.accounts.oauth2.initTokenClient({
-    client_id: CLIENT_ID,
-    scope: SCOPES,
-    callback: (resp) => {
-      if (resp.error) { alert("Error de autenticación: " + resp.error); return; }
-      accessToken = resp.access_token;
-      callback();
-    }
-  });
-  client.requestAccessToken();
-}
-
-async function guardarEnDrive() {
-  if (!productos.length) { alert("No hay carteles para guardar."); return; }
-  const btn = document.getElementById("btnDrive");
-  btn.textContent = "⏳ Guardando..."; btn.disabled = true;
-  try {
-    const doc = construirPDF();
-    const pdfBlob = doc.output("blob");
-    const fecha = new Date().toISOString().slice(0,10);
-    const nombre = `carteles_${fecha}.pdf`;
-
-    const subir = () => {
-      const metadata = { name: nombre, parents: [FOLDER_ID], mimeType: "application/pdf" };
-      const form = new FormData();
-      form.append("metadata", new Blob([JSON.stringify(metadata)], { type: "application/json" }));
-      form.append("file", pdfBlob);
-      fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", {
-        method: "POST",
-        headers: { Authorization: "Bearer " + accessToken },
-        body: form
-      })
-      .then(r => r.json())
-      .then(data => {
-        if (data.id) {
-          alert("✅ PDF guardado en Drive: " + nombre);
-        } else {
-          alert("Error al guardar: " + JSON.stringify(data));
-        }
-      })
-      .catch(e => alert("Error: " + e.message))
-      .finally(() => { btn.textContent = "☁️ GUARDAR EN DRIVE"; btn.disabled = false; });
-    };
-
-    if (!accessToken) { obtenerToken(subir); }
-    else { subir(); }
-  } catch(e) {
-    alert("Error: " + e.message);
-    btn.textContent = "☁️ GUARDAR EN DRIVE"; btn.disabled = false;
-  }
-}
-
 render();
+
+// AUTOCOMPLETE
+const STORAGE_KEY = "granja_historial";
+function getHistorial() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)||"[]"); } catch(e){return[];} }
+function guardarEnHistorial(n) {
+  if (!n) return;
+  let h = getHistorial().filter(x=>x!==n);
+  h.unshift(n);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(h.slice(0,100)));
+}
+function mostrarSugerencias(val) {
+  const div = document.getElementById("sugerencias");
+  if (!val || val.length < 2) { div.style.display="none"; return; }
+  const matches = getHistorial().filter(x=>x.toLowerCase().includes(val.toLowerCase())).slice(0,8);
+  if (!matches.length) { div.style.display="none"; return; }
+  div.innerHTML = matches.map(m=>`<div onclick="seleccionarSug('${m.replace(/'/g,"\'")}')"
+style="padding:8px 12px;cursor:pointer;font-size:0.85rem;color:#fff;border-bottom:1px solid #444"
+onmouseover="this.style.background='#555'" onmouseout="this.style.background=''">${m}</div>`).join("");
+  div.style.display="block";
+}
+function seleccionarSug(n) {
+  document.getElementById("inNombre").value=n;
+  document.getElementById("sugerencias").style.display="none";
+  document.getElementById("inPrecio").focus();
+}
+document.addEventListener("click", e=>{
+  if (!e.target.closest("#inNombre") && !e.target.closest("#sugerencias"))
+    document.getElementById("sugerencias").style.display="none";
+});
+
+// MULTI-HOJA PDF
+function construirPDF() {
+  const {jsPDF} = window.jspdf;
+  const doc = new jsPDF({orientation:"landscape",unit:"mm",format:"a4"});
+  const COLS=3,ROWS=4,PH=12;
+  const cW=297/COLS, cH=210/ROWS;
+  for (let i=0;i<productos.length;i++) {
+    const p=productos[i];
+    const pos=i%PH;
+    if (pos===0) { if(i>0) doc.addPage(); doc.addImage(IMG_B64,"PNG",0,0,297,210); }
+    const col=pos%COLS, row=Math.floor(pos/COLS);
+    const x=col*cW, y=row*cH;
+    if (p.nombre) {
+      doc.setFont("helvetica","bold"); doc.setFontSize(16); doc.setTextColor(17,17,17);
+      const nX=x+cW*0.30, nW=cW*0.72;
+      const lines=doc.splitTextToSize(p.nombre,nW);
+      const lineH=7, totalH=lines.length*lineH;
+      const startY=y+cH*0.29-totalH/2+lineH;
+      lines.forEach((l,li)=>{ const lw=doc.getTextWidth(l); doc.text(l,nX+(nW-lw)/2,startY+li*lineH); });
+    }
+    if (p.precio!==null) {
+      doc.setFont("helvetica","bold"); doc.setFontSize(46); doc.setTextColor(192,57,43);
+      const py=row===3?y+cH*0.80:row===2?y+cH*0.82:y+cH*0.85;
+      doc.text(fmt(p.precio),x+cW*0.50,py);
+    }
+  }
+  return doc;
+}
+
+// DRIVE
+const CLIENT_ID="556113639164-rk5u4alkneju0lq1jodgmjlogh9migb7.apps.googleusercontent.com";
+const FOLDER_ID="1qWj9v5-g4uDZ86DAUlA0aFrtZ4sfjw87";
+let accessToken=null;
+function obtenerToken(cb) {
+  google.accounts.oauth2.initTokenClient({
+    client_id:CLIENT_ID, scope:"https://www.googleapis.com/auth/drive.file",
+    callback:(r)=>{ if(r.error){alert("Error auth: "+r.error);return;} accessToken=r.access_token; cb(); }
+  }).requestAccessToken();
+}
+async function guardarEnDrive() {
+  if (!productos.length) { alert("No hay carteles."); return; }
+  const btn=document.getElementById("btnDrive");
+  btn.textContent="⏳ Guardando..."; btn.disabled=true;
+  try {
+    const doc=construirPDF();
+    const blob=doc.output("blob");
+    const nombre=`carteles_${new Date().toISOString().slice(0,10)}.pdf`;
+    const subir=()=>{
+      const meta={name:nombre,parents:[FOLDER_ID],mimeType:"application/pdf"};
+      const form=new FormData();
+      form.append("metadata",new Blob([JSON.stringify(meta)],{type:"application/json"}));
+      form.append("file",blob);
+      fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
+        {method:"POST",headers:{Authorization:"Bearer "+accessToken},body:form})
+      .then(r=>r.json()).then(d=>{ if(d.id) alert("✅ Guardado: "+nombre); else alert("Error: "+JSON.stringify(d)); })
+      .catch(e=>alert("Error: "+e.message))
+      .finally(()=>{ btn.textContent="☁️ GUARDAR EN DRIVE"; btn.disabled=false; });
+    };
+    if (!accessToken) obtenerToken(subir); else subir();
+  } catch(e) { alert("Error: "+e.message); btn.textContent="☁️ GUARDAR EN DRIVE"; btn.disabled=false; }
+}
 </script>
 </body>
 </html>
